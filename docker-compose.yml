@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dobro}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dobro}
+      POSTGRES_DB: ${POSTGRES_DB:-dobro}
+      # UTF-8 локаль нужна для регистронезависимого поиска по кириллице
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C.UTF-8
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dobro}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-dobro}:${POSTGRES_PASSWORD:-dobro}@db:5432/${POSTGRES_DB:-dobro}
+      JWT_SECRET: ${JWT_SECRET:?Задайте JWT_SECRET в .env}
+      JWT_EXPIRES_MINUTES: ${JWT_EXPIRES_MINUTES:-10080}
+      SEED_DEMO: ${SEED_DEMO:-true}
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${APP_PORT:-8080}:80"
+
+volumes:
+  pgdata:
