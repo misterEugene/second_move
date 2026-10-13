@@ -8,7 +8,7 @@ import { CATEGORIES } from '@/lib/categories';
 import { formatDate, formatHours, timeRange } from '@/lib/format';
 import { useTitle } from '@/lib/useTitle';
 
-interface OrgEvent extends EventItem { pendingCount: number }
+interface OrgEvent extends EventItem { pendingCount: number; toConfirmCount: number }
 interface Stats { events: number; pendingApplications: number; volunteers: number; confirmedHours: number }
 
 export function OrgEventsPage() {
@@ -61,7 +61,15 @@ export function OrgEventsPage() {
                       </Link>
                     </td>
                     <td className="nowrap">{formatDate(e.date)}<span className="muted small block">{timeRange(e.shifts) ?? 'нет смен'}</span></td>
-                    <td>{e.pendingCount ? <span className="badge warn">{e.pendingCount} новых</span> : <span className="muted small">—</span>}</td>
+                    <td>
+                      <div className="stack" style={{ gap: 4, alignItems: 'flex-start' }}>
+                        {e.pendingCount > 0 && <span className="badge warn">{e.pendingCount} новых</span>}
+                        {e.toConfirmCount > 0 && (
+                          <Link to={`/organizer/events/${e.id}`} className="badge info">{e.toConfirmCount} ждут часов</Link>
+                        )}
+                        {!e.pendingCount && !e.toConfirmCount && <span className="muted small">—</span>}
+                      </div>
+                    </td>
                     <td>
                       <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
                         <div className="progress" style={{ flex: 1 }}><i style={{ width: `${(e.approvedCount / e.limit) * 100}%` }} /></div>

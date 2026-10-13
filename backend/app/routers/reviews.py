@@ -12,13 +12,15 @@ router = APIRouter(tags=["reviews"])
 
 @router.post("/reviews", status_code=201)
 def create_review(body: ReviewIn, db: DB, user: Volunteer):
-    """Отзыв можно оставить только после фактического участия в мероприятии."""
-    app = db.scalars(
-        select(Application).where(Application.event_id == body.event_id, Application.volunteer_id == user.id)
-    ).first()
-    if app is None:
+    apps = db.scalars(
+        select(Application)
+        .where(Application.event_id == body.event_id, Application.volunteer_id == user.id)
+        .order_by(Application.id)
+    ).all()
+    if not apps:
         raise not_found("Вы не участвовали в этом мероприятии")
-    if not (app.participation and app.participation.attended):
+    app = next((a for a in apps if a.participation and a.participation.attended), None)
+    if app is None:
         raise forbidden("Отзыв можно оставить только после участия")
     exists = db.scalars(
         select(Review).where(Review.event_id == body.event_id, Review.volunteer_id == user.id)

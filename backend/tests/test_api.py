@@ -1,5 +1,3 @@
-"""Сценарии TC-01…TC-11 из ТЗ, плюс проверки ролей и лимитов. Тесты идут по порядку и делят состояние."""
-
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 
@@ -30,8 +28,6 @@ def register(client, who: str, **body):
     S["tokens"][who] = r.json()["token"]
     return r.json()
 
-
-# --- Регистрация и вход ---
 
 def test_admin_login(client):
     with SessionLocal() as db:
@@ -83,8 +79,6 @@ def test_register_others(client):
     register(client, "org2", name="Чужой организатор", email="org2@test.ru", role="ORGANIZER", organizationName="Другие")
 
 
-# --- Мероприятия и каталог ---
-
 def test_create_event_and_shift(client):
     r = client.post(f"{API}/events", headers=auth("org"), json={
         "title": "Уборка набережной", "description": "Собираем мусор на набережной вместе с жителями района.",
@@ -115,6 +109,13 @@ def test_shift_end_before_start(client):
     assert r.status_code == 400 and "endAt" in r.json()["errors"]
 
 
+def test_shift_too_short(client):
+    r = client.post(f"{API}/events/{S['event']}/shifts", headers=auth("org"), json={
+        "startAt": f"{EVENT_DATE}T10:00:00Z", "endAt": f"{EVENT_DATE}T10:05:00Z", "capacity": 1,
+    })
+    assert r.status_code == 400 and "15 минут" in r.json()["errors"]["endAt"]
+
+
 def test_tc03_guest_catalog(client):
     r = client.get(f"{API}/events")
     assert r.status_code == 200 and r.json()["total"] == 2
@@ -131,8 +132,6 @@ def test_tc04_filters(client):
 def test_foreign_organizer_cannot_edit(client):
     assert client.patch(f"{API}/events/{S['event']}", headers=auth("org2"), json={"limit": 50}).status_code == 403
 
-
-# --- Заявки, лимиты и роли ---
 
 def test_guest_cannot_apply(client):
     assert client.post(f"{API}/events/{S['event']}/apply", json={}).status_code == 401
@@ -196,7 +195,42 @@ def test_parallel_approvals_respect_limit(client):
     assert sorted(codes) == [200, 409, 409]
 
 
-# --- Участие и часы ---
+def test_several_shifts_in_one_event(client):
+    r = client.post(f"{API}/events", headers=auth("org"), json={
+        "title": "Две смены", "description": "Мероприятие, где можно взять несколько смен подряд.",
+        "category": "SOCIAL", "date": day(6), "city": "Ростов-на-Дону", "limit": 1,
+    })
+    event_id = r.json()["id"]
+    d = day(6)
+    shifts = {}
+    for name, start, end in (("am", "10", "12"), ("pm", "12", "14"), ("mid", "11", "13")):
+        r = client.post(f"{API}/events/{event_id}/shifts", headers=auth("org"), json={
+            "startAt": f"{d}T{start}:00:00Z", "endAt": f"{d}T{end}:00:00Z", "capacity": 1,
+        })
+        shifts[name] = r.json()["id"]
+    app_id = client.post(f"{API}/events/{event_id}/apply", headers=auth("v2"), json={}).json()["id"]
+    join = lambda who, s: client.post(f"{API}/events/{event_id}/my-shifts", headers=auth(who), json={"shiftId": shifts[s]})
+    assert join("v2", "am").status_code == 403
+    assert client.patch(f"{API}/applications/{app_id}", headers=auth("org"), json={"status": "APPROVED"}).status_code == 200
+
+    assert join("v2", "am").json()["id"] == app_id
+    pm = join("v2", "pm")
+    assert pm.status_code == 200 and pm.json()["id"] != app_id
+    assert join("v2", "am").status_code == 409
+    r = join("v2", "mid")
+    assert r.status_code == 409 and "пересекается" in r.json()["message"]
+
+    event = client.get(f"{API}/events/{event_id}", headers=auth("v2")).json()
+    assert event["approvedCount"] == 1 and event["freePlaces"] == 0
+    assert sorted(a["shiftId"] for a in event["myApplications"]) == sorted([shifts["am"], shifts["pm"]])
+    assert len(client.get(f"{API}/events/{event_id}/applications", headers=auth("org")).json()) == 2
+
+    r = client.delete(f"{API}/applications/{pm.json()['id']}/shift", headers=auth("v2"))
+    assert r.status_code == 200 and r.json()["status"] == "CANCELLED"
+    r = client.delete(f"{API}/applications/{app_id}/shift", headers=auth("v2"))
+    assert r.status_code == 200 and r.json()["status"] == "APPROVED"
+    assert join("v2", "mid").status_code == 200
+
 
 def test_tc08_mark_attendance(client):
     r = client.post(f"{API}/participations/{S['apps']['v1']}", headers=auth("org"), json={"attended": True})
@@ -223,6 +257,11 @@ def test_hours_not_above_shift(client):
     assert r.status_code == 400 and "hours" in r.json()["errors"]
 
 
+def test_hours_in_quarter_steps(client):
+    r = client.post(f"{API}/hours/{S['participation']}/confirm", headers=auth("org"), json={"hours": 1.1})
+    assert r.status_code == 400 and "15 минут" in r.json()["errors"]["hours"]
+
+
 def test_tc09_confirm_hours_visible_in_stats(client):
     r = client.post(f"{API}/hours/{S['participation']}/confirm", headers=auth("org"), json={"hours": 4})
     assert r.status_code == 201, r.text
@@ -240,8 +279,6 @@ def test_no_reconfirm_or_remark(client):
     assert client.post(f"{API}/participations/{S['apps']['v1']}", headers=auth("org"), json={"attended": False}).status_code == 409
 
 
-# --- Отзывы ---
-
 def test_tc11_review_after_participation(client):
     body = {"eventId": S["event"], "rating": 5, "text": "Отлично!"}
     assert client.post(f"{API}/reviews", headers=auth("v1"), json=body).status_code == 201
@@ -254,8 +291,6 @@ def test_review_requires_participation(client):
     r = client.post(f"{API}/reviews", headers=auth("v3"), json={"eventId": S["event"], "rating": 1, "text": "Плохо"})
     assert r.status_code == 403
 
-
-# --- Администрирование ---
 
 def test_admin_hides_event(client):
     assert client.patch(f"{API}/admin/events/{S['event']}", headers=auth("admin"), json={"status": "HIDDEN"}).status_code == 200

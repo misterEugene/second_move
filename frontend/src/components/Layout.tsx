@@ -21,7 +21,6 @@ function AppHeader() {
     window.scrollTo(0, 0);
   }, [location.pathname]);
 
-  /** Основное меню из ТЗ + пункты кабинета по роли. */
   const links = [
     { to: '/events', label: 'Мероприятия' },
     { to: '/organizations', label: 'Организации' },

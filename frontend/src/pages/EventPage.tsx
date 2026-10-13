@@ -2,7 +2,7 @@ import { ArrowLeft, CalendarDays, CheckCircle2, Clock, MapPin, Settings, ShieldC
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
-import type { EventDetails } from '@/api/types';
+import type { EventDetails, Shift } from '@/api/types';
 import { CategoryBadge, EventCover, Skeleton, StarRating, StatusBadge } from '@/components/Basics';
 import { ReviewForm } from '@/components/ReviewForm';
 import { useAuth } from '@/lib/auth';
@@ -55,20 +55,34 @@ export function EventPage() {
   }
   if (!event) return <div className="container page"><Skeleton height={420} /></div>;
 
-  const app = event.myApplication;
+  const myApps = event.myApplications.filter((a) => a.status !== 'CANCELLED');
+  const approved = myApps.filter((a) => a.status === 'APPROVED');
+  const app = approved[0] ?? myApps[0] ?? null;
+  const myShift = (shiftId: number) => approved.find((a) => a.shiftId === shiftId);
+  const myShifts = approved.flatMap((a) => event.shifts.filter((s) => s.id === a.shiftId));
+  const attended = myApps.some((a) => a.attended);
+  const confirmedHours = myApps.reduce((sum, a) => sum + (a.hours ?? 0), 0);
+  const waitingHours = myApps.some((a) => a.attended && a.hours === null);
   const user = auth.user;
   const canApply = user && (user.role === 'VOLUNTEER' || user.role === 'ADMIN') && !event.canManage;
   const maxHours = event.shifts.length ? Math.max(...event.shifts.map(shiftHours)) : null;
   const requirements = event.requirements.split('\n').map((s) => s.trim()).filter(Boolean);
   const range = timeRange(event.shifts);
   const redirect = encodeURIComponent(location.pathname);
-  const activeApp = app && app.status === 'APPROVED' && app.attended === null;
+  const canJoin = approved.length > 0;
+  const overlapsMine = (s: Shift) =>
+    myShifts.some((m) => m.id !== s.id && new Date(m.startAt) < new Date(s.endAt) && new Date(s.startAt) < new Date(m.endAt));
 
   const apply = () =>
     act(() => api(`/events/${id}/apply`, { method: 'POST', body: { message } }), 'Заявка отправлена организатору');
-  const cancel = () => act(() => api(`/applications/${app!.id}/cancel`, { method: 'POST' }), 'Заявка отменена');
-  const chooseShift = (shiftId: number) =>
-    act(() => api(`/applications/${app!.id}/shift`, { method: 'PUT', body: { shiftId } }), 'Вы записаны на смену');
+  const cancel = () =>
+    act(async () => {
+      for (const a of myApps) if (a.attended === null) await api(`/applications/${a.id}/cancel`, { method: 'POST' });
+    }, 'Заявка отменена');
+  const joinShift = (shiftId: number) =>
+    act(() => api(`/events/${id}/my-shifts`, { method: 'POST', body: { shiftId } }), 'Вы записаны на смену');
+  const leaveShift = (applicationId: number) =>
+    act(() => api(`/applications/${applicationId}/shift`, { method: 'DELETE' }), 'Вы выписались со смены');
 
   function actionBlock() {
     if (event!.canManage) {
@@ -83,7 +97,7 @@ export function EventPage() {
       );
     }
     if (!canApply) return <p className="muted">Заявки на участие подают волонтёры.</p>;
-    if (!app || app.status === 'CANCELLED') {
+    if (!app) {
       return event!.freePlaces > 0 ? (
         <>
           <label className="field">
@@ -101,13 +115,13 @@ export function EventPage() {
         <div className="row"><span>Ваша заявка:</span><StatusBadge status={app.status} /></div>
         {app.status === 'PENDING' && <p className="muted small">Организатор рассмотрит заявку и пришлёт уведомление.</p>}
         {app.status === 'REJECTED' && <p className="muted small">К сожалению, организатор отклонил заявку.</p>}
-        {activeApp && (app.shiftId
-          ? <p className="hint ok"><CheckCircle2 size={16} /> Вы записаны на смену. Ждём вас!</p>
-          : <p className="hint">Заявка одобрена — выберите смену ниже.</p>)}
-        {app.attended && app.hours !== null && <p className="hint ok"><CheckCircle2 size={16} /> Подтверждено {formatHours(app.hours)}</p>}
-        {app.attended && app.hours === null && <p className="hint">Участие отмечено. Ожидается подтверждение часов организатором.</p>}
-        {app.attended === false && <p className="muted small">Организатор отметил, что вы не участвовали.</p>}
-        {(app.status === 'PENDING' || app.status === 'APPROVED') && app.attended === null && (
+        {canJoin && (myShifts.length
+          ? <p className="hint ok"><CheckCircle2 size={16} /> Вы записаны на {myShifts.length} {plural(myShifts.length, ['смену', 'смены', 'смен'])}. Можно взять и другие — ниже.</p>
+          : <p className="hint">Заявка одобрена — выберите одну или несколько смен ниже.</p>)}
+        {confirmedHours > 0 && <p className="hint ok"><CheckCircle2 size={16} /> Подтверждено {formatHours(confirmedHours)}</p>}
+        {waitingHours && <p className="hint">Участие отмечено. Ожидается подтверждение часов организатором.</p>}
+        {myApps.length > 0 && myApps.every((a) => a.attended === false) && <p className="muted small">Организатор отметил, что вы не участвовали.</p>}
+        {(app.status === 'PENDING' || app.status === 'APPROVED') && myApps.every((a) => a.attended === null) && (
           <button className="btn btn-ghost btn-sm" disabled={busy} onClick={cancel}>Отменить заявку</button>
         )}
       </>
@@ -165,17 +179,25 @@ export function EventPage() {
               <ul className="shift-list">
                 {event.shifts.map((s) => {
                   const full = (s.taken ?? 0) >= s.capacity;
+                  const mine = myShift(s.id);
+                  const started = new Date(s.startAt) < new Date();
+                  const overlaps = !mine && overlapsMine(s);
                   return (
-                    <li key={s.id} className={app?.shiftId === s.id ? 'mine' : ''}>
+                    <li key={s.id} className={mine ? 'mine' : ''}>
                       <div>
                         <strong>{formatShift(s)}</strong>
                         <p className="muted small">Занято {s.taken} из {s.capacity} · {formatHours(shiftHours(s))}</p>
                       </div>
-                      {app?.shiftId === s.id ? (
-                        <span className="badge ok">Ваша смена</span>
-                      ) : activeApp ? (
-                        <button className="btn btn-sm btn-soft" disabled={busy || full || new Date(s.startAt) < new Date()} onClick={() => chooseShift(s.id)}>
-                          {full ? 'Мест нет' : app.shiftId ? 'Перейти' : 'Записаться'}
+                      {mine ? (
+                        <div className="row" style={{ gap: 6 }}>
+                          <span className="badge ok">Ваша смена</span>
+                          {mine.attended === null && !started && (
+                            <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => leaveShift(mine.id)}>Отписаться</button>
+                          )}
+                        </div>
+                      ) : canJoin ? (
+                        <button className="btn btn-sm btn-soft" disabled={busy || full || started || overlaps} onClick={() => joinShift(s.id)}>
+                          {full ? 'Мест нет' : overlaps ? 'Пересекается' : 'Записаться'}
                         </button>
                       ) : null}
                     </li>
@@ -185,7 +207,7 @@ export function EventPage() {
             )}
           </section>
 
-          {app?.attended && !event.myReview && (
+          {attended && !event.myReview && (
             <section className="card card-pad">
               <h2 className="h">Оставьте отзыв об организаторе</h2>
               <ReviewForm eventId={event.id} onDone={load} />

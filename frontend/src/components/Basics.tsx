@@ -53,7 +53,6 @@ export function StarRating({ value, count, size = 14 }: { value: number | null; 
   );
 }
 
-/** Фото мероприятия, а если его нет — иллюстрация в цвете направления. */
 export function EventCover(props: {
   category: Category;
   imageUrl?: string | null;

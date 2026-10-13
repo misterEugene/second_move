@@ -4,7 +4,6 @@ const timeFmt = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-d
 const dateTimeFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const localDateFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' });
 
-/** Дата мероприятия хранится как календарный день (UTC-полночь). */
 export const formatDate = (iso: string) => dateFmt.format(new Date(iso));
 export const formatShortDate = (iso: string) => shortDateFmt.format(new Date(iso));
 export const formatTime = (iso: string) => timeFmt.format(new Date(iso));
@@ -25,10 +24,15 @@ export const shiftHours = (s: { startAt: string; endAt: string }) =>
   (new Date(s.endAt).getTime() - new Date(s.startAt).getTime()) / 3600_000;
 
 export function formatHours(h: number) {
-  return `${h.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} ч`;
+  const total = Math.round(h * 60);
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  if (!minutes) return `${hours.toLocaleString('ru-RU')} ч`;
+  return hours ? `${hours.toLocaleString('ru-RU')} ч ${minutes} мин` : `${minutes} мин`;
 }
 
-/** plural(5, ['место', 'места', 'мест']) */
+export const shiftHoursLimit = (s: { startAt: string; endAt: string }) => Math.min(24, Math.ceil(shiftHours(s) * 4) / 4);
+
 export function plural(n: number, forms: [string, string, string]) {
   const n10 = n % 10;
   const n100 = n % 100;
@@ -37,7 +41,6 @@ export function plural(n: number, forms: [string, string, string]) {
   return forms[2];
 }
 
-/** YYYY-MM-DD для <input type="date"> в локальном времени. */
 export function todayInput() {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);

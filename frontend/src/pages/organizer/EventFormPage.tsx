@@ -49,7 +49,6 @@ export function EventFormPage() {
       title: form.title, description: form.description, requirements: form.requirements, city: form.city,
       address: form.address, skills: form.skills, imageUrl: form.imageUrl.trim() || null,
     };
-    // Пустые поля не отправляем — сервер вернёт понятную ошибку «Обязательное поле».
     if (form.category) body.category = form.category;
     if (form.date) body.date = form.date;
     if (form.limit !== '') body.limit = Number(form.limit);

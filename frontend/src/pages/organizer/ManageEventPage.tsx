@@ -1,15 +1,24 @@
-import { CalendarDays, Check, ExternalLink, MapPin, Pencil, Plus, Trash2, Users, X } from 'lucide-react';
+import { CalendarDays, Check, ExternalLink, Info, MapPin, Pencil, Plus, Trash2, Users, X } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
 import type { EventApplication, EventDetails } from '@/api/types';
 import { CategoryBadge, FieldError, Skeleton, StatusBadge } from '@/components/Basics';
-import { formatDate, formatDateTime, formatHours, formatShift, shiftHours } from '@/lib/format';
+import { formatDate, formatDateTime, formatHours, formatShift, shiftHours, shiftHoursLimit } from '@/lib/format';
 import { toast } from '@/lib/toast';
 import { useForm } from '@/lib/useForm';
 import { useTitle } from '@/lib/useTitle';
 
 type Filter = 'ALL' | 'PENDING' | 'APPROVED';
+interface HoursValue { h: string; m: string }
+
+const MINUTES = ['0', '15', '30', '45'];
+const toHours = (v: HoursValue) => Number(v.h || 0) + Number(v.m) / 60;
+
+function defaultHours(a: EventApplication): HoursValue {
+  const total = a.shift ? shiftHoursLimit(a.shift) : 2;
+  return { h: String(Math.floor(total)), m: String(Math.round((total % 1) * 60)) };
+}
 
 export function ManageEventPage() {
   const id = Number(useParams().id);
@@ -18,25 +27,31 @@ export function ManageEventPage() {
   const [apps, setApps] = useState<EventApplication[]>([]);
   const [filter, setFilter] = useState<Filter>('ALL');
   const [busyId, setBusyId] = useState<number | null>(null);
-  /** Введённые организатором часы по id отметки участия. */
-  const [hoursInput, setHoursInput] = useState<Record<number, string>>({});
+  const [loadError, setLoadError] = useState('');
+  const [hoursInput, setHoursInput] = useState<Record<number, HoursValue>>({});
   const [shiftForm, setShiftForm] = useState({ date: '', start: '10:00', end: '14:00', capacity: '10' });
   const shiftState = useForm();
   useTitle(event ? `Управление: ${event.title}` : 'Управление мероприятием');
 
   const load = useCallback(async () => {
-    const [e, a] = await Promise.all([
-      api<EventDetails>(`/events/${id}`),
-      api<EventApplication[]>(`/events/${id}/applications`),
-    ]);
+    let e: EventDetails, a: EventApplication[];
+    try {
+      [e, a] = await Promise.all([
+        api<EventDetails>(`/events/${id}`),
+        api<EventApplication[]>(`/events/${id}/applications`),
+      ]);
+    } catch (err) {
+      if (err instanceof ApiError && [400, 403, 404].includes(err.status)) {
+        setLoadError(err.status === 403 ? 'Это мероприятие другой организации — управлять им нельзя.' : 'Возможно, оно было удалено.');
+        return;
+      }
+      throw err;
+    }
     setEvent(e);
     setApps(a);
     setHoursInput((prev) => {
       const next = { ...prev };
-      for (const app of a) {
-        const p = app.participation;
-        if (p?.attended && p.hours === null && next[p.id] === undefined) next[p.id] = String(app.shift ? shiftHours(app.shift) : 2);
-      }
+      for (const app of a) if (app.status === 'APPROVED' && next[app.id] === undefined) next[app.id] = defaultHours(app);
       return next;
     });
     setShiftForm((f) => (f.date ? f : { ...f, date: e.date.slice(0, 10), capacity: String(Math.min(10, e.limit)) }));
@@ -65,10 +80,45 @@ export function ManageEventPage() {
     act(a.id, () => api(`/participations/${a.id}`, { method: 'POST', body: { attended } }), attended ? 'Участие отмечено' : 'Отмечено отсутствие');
 
   function confirmHours(a: EventApplication) {
-    const p = a.participation!;
-    const hours = Number(hoursInput[p.id]);
-    if (!confirm(`Подтвердить ${formatHours(hours)} для ${a.volunteer.name}? Изменить это будет нельзя.`)) return;
-    void act(a.id, () => api(`/hours/${p.id}/confirm`, { method: 'POST', body: { hours } }), 'Часы подтверждены');
+    const hours = toHours(hoursInput[a.id] ?? defaultHours(a));
+    if (hours <= 0) {
+      toast('Укажите, сколько времени волонтёр отработал', 'bad');
+      return;
+    }
+    if (!confirm(`Засчитать ${a.volunteer.name} ${formatHours(hours)}? Изменить это будет нельзя.`)) return;
+    void act(
+      a.id,
+      async () => {
+        let participationId = a.participation?.id;
+        if (!a.participation?.attended) {
+          const p = await api<{ id: number }>(`/participations/${a.id}`, { method: 'POST', body: { attended: true } });
+          participationId = p.id;
+        }
+        await api(`/hours/${participationId}/confirm`, { method: 'POST', body: { hours } });
+      },
+      'Часы засчитаны',
+    );
+  }
+
+  function hoursField(a: EventApplication) {
+    const value = hoursInput[a.id] ?? defaultHours(a);
+    const set = (patch: Partial<HoursValue>) => setHoursInput({ ...hoursInput, [a.id]: { ...value, ...patch } });
+    return (
+      <span className="hours-field">
+        <label>
+          <span className="sr-only">Часы для {a.volunteer.name}</span>
+          <input type="number" min={0} max={24} step={1} className="input" value={value.h} onChange={(e) => set({ h: e.target.value })} />
+        </label>
+        <span className="small">ч</span>
+        <label>
+          <span className="sr-only">Минуты для {a.volunteer.name}</span>
+          <select className="input" value={value.m} onChange={(e) => set({ m: e.target.value })}>
+            {MINUTES.map((m) => <option key={m} value={m}>{m.padStart(2, '0')}</option>)}
+          </select>
+        </label>
+        <span className="small">мин</span>
+      </span>
+    );
   }
 
   async function addShift(e: FormEvent) {
@@ -97,6 +147,15 @@ export function ManageEventPage() {
     }
   }
 
+  if (loadError) {
+    return (
+      <div className="empty card">
+        <p><strong>Мероприятие недоступно</strong></p>
+        <p>{loadError}</p>
+        <Link to="/organizer" className="btn btn-ghost btn-sm" style={{ marginTop: 12 }}>К моим мероприятиям</Link>
+      </div>
+    );
+  }
   if (!event) return <Skeleton height={420} />;
 
   const shown = apps.filter((a) => filter === 'ALL' || a.status === filter);
@@ -117,7 +176,8 @@ export function ManageEventPage() {
     if (a.status === 'APPROVED' && !p) {
       return (
         <>
-          <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => mark(a, true)}>Отметить участие</button>
+          {hoursField(a)}
+          <button className="btn btn-sm" disabled={busy} onClick={() => confirmHours(a)}><Check size={15} /> Засчитать часы</button>
           <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => mark(a, false)}>Не пришёл</button>
         </>
       );
@@ -133,12 +193,9 @@ export function ManageEventPage() {
     if (p && p.hours === null) {
       return (
         <>
-          <label className="hours-field">
-            <span className="sr-only">Часы для {a.volunteer.name}</span>
-            <input type="number" min={0.5} max={24} step={0.5} className="input" value={hoursInput[p.id] ?? ''} onChange={(e) => setHoursInput({ ...hoursInput, [p.id]: e.target.value })} />
-            <span className="small">ч</span>
-          </label>
-          <button className="btn btn-sm" disabled={busy} onClick={() => confirmHours(a)}>Подтвердить часы</button>
+          <span className="badge muted">Участие отмечено</span>
+          {hoursField(a)}
+          <button className="btn btn-sm" disabled={busy} onClick={() => confirmHours(a)}><Check size={15} /> Засчитать часы</button>
         </>
       );
     }
@@ -226,6 +283,10 @@ export function ManageEventPage() {
             <button className={filter === 'APPROVED' ? 'on' : ''} onClick={() => setFilter('APPROVED')}>Одобренные</button>
           </div>
         </div>
+        <p className="hint" style={{ marginBottom: 14 }}>
+          <Info size={16} /> Когда смена прошла, укажите для каждого одобренного участника, сколько он отработал, и нажмите «Засчитать часы».
+          Часы появятся в личном кабинете волонтёра. Если человек не пришёл — «Не пришёл».
+        </p>
         {!shown.length ? (
           <p className="muted">Заявок нет.</p>
         ) : (

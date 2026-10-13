@@ -1,5 +1,3 @@
-"""Входные данные API. Ключи в camelCase — так же, как в ответах."""
-
 import datetime as dt
 from decimal import Decimal
 from typing import Annotated, Literal
@@ -32,7 +30,6 @@ class RegisterIn(In):
     name: Annotated[Str, StringConstraints(max_length=100)]
     email: Email
     password: Annotated[str, StringConstraints(max_length=72)]
-    # Администратора через регистрацию создать нельзя.
     role: Literal["VOLUNTEER", "ORGANIZER"] = "VOLUNTEER"
     city: Annotated[Str, StringConstraints(max_length=100)] | None = None
     organization_name: Annotated[Str, StringConstraints(max_length=150)] | None = None
@@ -59,7 +56,6 @@ class RegisterIn(In):
 
 
 class LoginIn(In):
-    # Формат не проверяем: при входе достаточно сравнить с сохранённым адресом.
     email: Annotated[str, StringConstraints(min_length=1, max_length=200), AfterValidator(_lower)]
     password: Annotated[str, StringConstraints(min_length=1)]
 
@@ -75,7 +71,6 @@ class EventIn(In):
     limit: Annotated[int, Field(ge=1, le=1000)]
     image_url: Annotated[Str, StringConstraints(max_length=500)] | None = None
     skills: SkillNames = []
-    # Только для администратора: организация, от имени которой создаётся мероприятие.
     organization_id: int | None = None
 
     @field_validator("title")
@@ -135,12 +130,10 @@ class AttendanceIn(In):
 
 
 class HoursIn(In):
-    hours: Annotated[Decimal, Field(ge=Decimal("0.5"), le=24, decimal_places=2)]
+    hours: Annotated[Decimal, Field(ge=Decimal("0.25"), le=24, multiple_of=Decimal("0.25"))]
 
 
 class ProfileIn(In):
-    """Часов здесь нет намеренно: extra="forbid" отклонит любую попытку передать их."""
-
     name: Annotated[Str, StringConstraints(min_length=2, max_length=100)] | None = None
     city: Annotated[Str, StringConstraints(max_length=100)] | None = None
     about: Annotated[Str, StringConstraints(max_length=1000)] | None = None

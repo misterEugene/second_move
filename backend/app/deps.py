@@ -14,10 +14,6 @@ DB = Annotated[Session, Depends(get_db)]
 
 
 def optional_user(request: Request, db: DB) -> User | None:
-    """
-    Разбирает Bearer-токен на любом запросе. Пользователь читается из БД,
-    поэтому смена роли или блокировка действуют сразу.
-    """
     header = request.headers.get("authorization", "")
     if not header.startswith("Bearer "):
         return None
@@ -40,8 +36,6 @@ def current_user(request: Request, db: DB) -> User:
 
 
 def require_roles(*roles: Role) -> Callable[[User], User]:
-    """Проверка роли на сервере — скрытая кнопка в интерфейсе защитой не является."""
-
     def check(user: Annotated[User, Depends(current_user)]) -> User:
         if user.role not in roles:
             raise forbidden()

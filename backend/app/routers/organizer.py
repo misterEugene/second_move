@@ -1,10 +1,12 @@
+from datetime import date, datetime
+
 from fastapi import APIRouter
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from ..deps import DB, OrganizerOnly
 from ..errors import not_found
-from ..models import Application, ApplicationStatus, Event, Participation, Review, User, VolunteerHours
+from ..models import Application, ApplicationStatus, Event, Participation, Review, Shift, User, VolunteerHours
 from ..schemas import OrganizationIn
 from ..services import Occupancy, event_query, event_view, org_ratings, organization_of, review_view
 
@@ -49,8 +51,28 @@ def events(db: DB, user: OrganizerOnly):
             .group_by(Application.event_id)
         ).all()
     )
+    to_confirm = dict(
+        db.execute(
+            select(Application.event_id, func.count())
+            .join(Event, Event.id == Application.event_id)
+            .outerjoin(Shift, Shift.id == Application.shift_id)
+            .outerjoin(Participation, Participation.application_id == Application.id)
+            .outerjoin(VolunteerHours, VolunteerHours.participation_id == Participation.id)
+            .where(
+                Application.event_id.in_(ids),
+                Application.status == ApplicationStatus.APPROVED,
+                VolunteerHours.id.is_(None),
+                or_(Participation.id.is_(None), Participation.attended),
+                or_(Shift.start_at <= datetime.now().astimezone(), and_(Shift.id.is_(None), Event.date <= date.today())),
+            )
+            .group_by(Application.event_id)
+        ).all()
+    )
     occ = Occupancy(db, ids)
-    return [{**event_view(e, occ), "pendingCount": pending.get(e.id, 0)} for e in items]
+    return [
+        {**event_view(e, occ), "pendingCount": pending.get(e.id, 0), "toConfirmCount": to_confirm.get(e.id, 0)}
+        for e in items
+    ]
 
 
 @router.get("/reviews")

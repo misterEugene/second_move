@@ -12,9 +12,7 @@ export function writeToken(token: string | null) {
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token);
     else localStorage.removeItem(TOKEN_KEY);
-  } catch {
-    /* хранилище недоступно — сессия живёт до перезагрузки */
-  }
+  } catch {}
 }
 
 export class ApiError extends Error {

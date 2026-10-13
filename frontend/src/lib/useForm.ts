@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react';
 import { ApiError } from '@/api/client';
 
-/** Состояние отправки формы: общая ошибка + ошибки по полям с сервера. */
 export function useForm() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState('');

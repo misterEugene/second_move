@@ -1,3 +1,4 @@
+import math
 from datetime import datetime
 
 from fastapi import APIRouter
@@ -12,9 +13,17 @@ from ..services import get_manageable_event, notify
 router = APIRouter(tags=["attendance"])
 
 
+def shift_hours_limit(shift) -> float:
+    return math.ceil((shift.end_at - shift.start_at).total_seconds() / 900) / 4
+
+
+def format_hours(hours: float) -> str:
+    h, m = divmod(round(hours * 60), 60)
+    return " ".join(part for part in (f"{h} ч" if h else "", f"{m} мин" if m else "") if part) or "0 ч"
+
+
 @router.post("/participations/{application_id}")
 def mark(application_id: int, body: AttendanceIn, db: DB, user: Organizer):
-    """Отметка фактического участия по заявке (id — идентификатор заявки)."""
     app = db.get(Application, application_id)
     if app is None:
         raise not_found("Заявка не найдена")
@@ -43,10 +52,6 @@ def mark(application_id: int, body: AttendanceIn, db: DB, user: Organizer):
 
 @router.post("/hours/{participation_id}/confirm", status_code=201)
 def confirm_hours(participation_id: int, body: HoursIn, db: DB, user: Organizer):
-    """
-    Подтверждение часов. Сервер сам проверяет, что участие относится к мероприятию
-    текущего организатора, отмечено как фактическое и ещё не подтверждено.
-    """
     p = db.get(Participation, participation_id)
     if p is None:
         raise not_found("Отметка участия не найдена")
@@ -57,22 +62,21 @@ def confirm_hours(participation_id: int, body: HoursIn, db: DB, user: Organizer)
         raise conflict("Часы по этому участию уже подтверждены")
     shift = p.application.shift
     if shift:
-        max_hours = (shift.end_at - shift.start_at).total_seconds() / 3600
+        max_hours = shift_hours_limit(shift)
         if float(body.hours) > max_hours:
-            raise field_error("hours", f"Не больше продолжительности смены ({max_hours:g} ч)")
+            raise field_error("hours", f"Не больше продолжительности смены ({format_hours(max_hours)})")
 
     record = VolunteerHours(participation_id=p.id, hours=body.hours, confirmed_by=user.id)
     db.add(record)
     notify(
         db,
         p.application.volunteer_id,
-        f"Подтверждено {float(body.hours):g} ч за «{event.title}». Спасибо! Теперь можно оставить отзыв.",
+        f"Подтверждено {format_hours(float(body.hours))} за «{event.title}». Спасибо! Теперь можно оставить отзыв.",
         "/cabinet/hours",
     )
     try:
         db.commit()
     except IntegrityError:
-        # Одновременное подтверждение: уникальный participation_id не даст записать часы дважды.
         db.rollback()
         raise conflict("Часы по этому участию уже подтверждены")
     return {"id": record.id, "participationId": p.id, "hours": float(record.hours)}

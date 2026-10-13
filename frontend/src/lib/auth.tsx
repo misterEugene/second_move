@@ -26,9 +26,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!readToken()) return;
     try {
       setUnread((await api<{ unread: number }>('/notifications')).unread);
-    } catch {
-      /* счётчик не критичен */
-    }
+    } catch {}
   }, []);
 
   const logout = useCallback(() => {
@@ -87,7 +85,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-/** Куда вести пользователя после входа. */
 export function homeFor(user: User | null) {
   return user?.role === 'ORGANIZER' ? '/organizer' : user?.role === 'ADMIN' ? '/admin' : '/cabinet';
 }

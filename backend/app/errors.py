@@ -5,8 +5,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 class AppError(Exception):
-    """Ошибка с ответом вида { message, errors: { field: text } }."""
-
     def __init__(self, status: int, message: str, errors: dict[str, str] | None = None):
         self.status = status
         self.message = message
@@ -38,7 +36,6 @@ def conflict(message: str) -> AppError:
 
 
 def _translate(err: dict) -> str:
-    """Сообщения Pydantic по-русски; свои ValueError из валидаторов передаются как есть."""
     kind = err["type"]
     ctx = err.get("ctx", {})
     if kind == "value_error" and "email address" in err["msg"]:
@@ -59,6 +56,7 @@ def _translate(err: dict) -> str:
         "float_parsing": "Укажите число",
         "decimal_parsing": "Укажите число",
         "decimal_max_places": "Слишком много знаков после запятой",
+        "multiple_of": "Часы указываются с шагом 15 минут",
         "bool_parsing": "Укажите да или нет",
         "bool_type": "Укажите да или нет",
         "date_from_datetime_parsing": "Некорректная дата",
@@ -92,7 +90,6 @@ def register_error_handlers(app: FastAPI) -> None:
         errors: dict[str, str] = {}
         for err in exc.errors():
             loc = [str(p) for p in err["loc"] if p not in ("body", "query", "path")]
-            # Ошибки валидаторов уровня модели указывают поле через ctx["field"].
             key = (err.get("ctx") or {}).get("field") or ".".join(loc) or "body"
             errors.setdefault(key, _translate(err))
         return JSONResponse(

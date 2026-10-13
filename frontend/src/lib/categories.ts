@@ -4,12 +4,10 @@ import type { ApplicationStatus, Category } from '@/api/types';
 interface CategoryMeta {
   label: string;
   icon: LucideIcon;
-  /** Цвет категории — одинаковый на бейджах и в диаграмме (проверенная категориальная палитра). */
   color: string;
   tint: string;
 }
 
-/** Порядок фиксирован: он же порядок сегментов в диаграмме часов. */
 export const CATEGORIES: Record<Category, CategoryMeta> = {
   EDUCATION: { label: 'Образование', icon: BookOpen, color: '#2a78d6', tint: '#e8f1fb' },
   HEALTH: { label: 'Здоровье', icon: HeartPulse, color: '#eb6834', tint: '#fdeee7' },

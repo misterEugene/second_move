@@ -122,7 +122,7 @@ class Shift(Base):
 
 class Application(Base):
     __tablename__ = "applications"
-    __table_args__ = (UniqueConstraint("event_id", "volunteer_id", name="applications_event_volunteer_key"),)
+    __table_args__ = (UniqueConstraint("volunteer_id", "shift_id", name="applications_volunteer_shift_key"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"))

@@ -6,12 +6,11 @@ import { formatHours } from '@/lib/format';
 const R = 52;
 const STROKE = 16;
 const C = 2 * Math.PI * R;
-const GAP = 2; // зазор цвета фона между сегментами
+const GAP = 2;
 
 export function HoursDonut({ data, total }: { data: { category: Category; hours: number }[]; total: number }) {
   const [hover, setHover] = useState<Category | null>(null);
 
-  // Сегменты идут в фиксированном порядке направлений, а не по величине — цвет следует за сущностью.
   const rows = CATEGORY_ORDER.flatMap((c) => data.filter((d) => d.category === c && d.hours > 0));
   let offset = 0;
   const segments = rows.map((d) => {
@@ -50,7 +49,7 @@ export function HoursDonut({ data, total }: { data: { category: Category; hours:
         </svg>
         <figcaption className="donut-center">
           <strong>{formatHours(active ? active.hours : total)}</strong>
-          <span>{active ? CATEGORIES[active.category].label : 'всего часов'}</span>
+          {active && <span>{CATEGORIES[active.category].label}</span>}
         </figcaption>
       </figure>
       <table className="legend">

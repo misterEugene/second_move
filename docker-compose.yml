@@ -6,7 +6,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-dobro}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dobro}
       POSTGRES_DB: ${POSTGRES_DB:-dobro}
-      # UTF-8 локаль нужна для регистронезависимого поиска по кириллице
       POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C.UTF-8
     volumes:
       - pgdata:/var/lib/postgresql/data

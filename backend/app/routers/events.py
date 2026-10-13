@@ -55,7 +55,6 @@ def list_events(
     occ = Occupancy(db, [e.id for e in events])
     items = [event_view(e, occ) for e in events]
 
-    # Учебный объём данных: свободные места и сортировку по ним считаем в памяти.
     if has_places:
         items = [e for e in items if e["freePlaces"] > 0]
     if sort == "new":
@@ -93,20 +92,22 @@ def get_event(event_id: int, db: DB, user: OptionalUser):
     if event.status == EventStatus.HIDDEN and not can_manage:
         raise not_found("Мероприятие не найдено")
 
-    my_application = my_review = None
+    my_applications, my_review = [], None
     if user:
-        app = db.scalars(
-            select(Application).where(Application.event_id == event_id, Application.volunteer_id == user.id)
-        ).first()
-        if app:
+        apps = db.scalars(
+            select(Application)
+            .where(Application.event_id == event_id, Application.volunteer_id == user.id)
+            .order_by(Application.id)
+        ).all()
+        for app in apps:
             p = app.participation
-            my_application = {
+            my_applications.append({
                 "id": app.id,
                 "status": app.status.value,
                 "shiftId": app.shift_id,
                 "attended": p.attended if p else None,
                 "hours": as_float(p.hours.hours) if p and p.hours else None,
-            }
+            })
         review = db.scalars(
             select(Review).where(Review.event_id == event_id, Review.volunteer_id == user.id)
         ).first()
@@ -117,7 +118,7 @@ def get_event(event_id: int, db: DB, user: OptionalUser):
         **event_view(event, Occupancy(db, [event_id])),
         "organizationRating": org_ratings(db, [event.organization_id])[event.organization_id],
         "canManage": can_manage,
-        "myApplication": my_application,
+        "myApplications": my_applications,
         "myReview": my_review,
     }
 
@@ -164,7 +165,7 @@ def update_event(event_id: int, body: EventUpdateIn, db: DB, user: Organizer):
     data = body.model_dump(exclude_unset=True, exclude={"organization_id", "skills"})
     if data.get("limit") is not None:
         approved = db.scalar(
-            select(func.count()).where(
+            select(func.count(func.distinct(Application.volunteer_id))).where(
                 Application.event_id == event_id, Application.status == ApplicationStatus.APPROVED
             )
         )
@@ -201,6 +202,8 @@ def add_shift(event_id: int, body: ShiftIn, db: DB, user: Organizer):
     event = get_manageable_event(db, user, event_id)
     if body.end_at <= body.start_at:
         raise field_error("endAt", "Окончание смены должно быть позже начала")
+    if body.end_at - body.start_at < timedelta(minutes=15):
+        raise field_error("endAt", "Смена должна длиться не меньше 15 минут")
     if body.end_at - body.start_at > timedelta(hours=24):
         raise field_error("endAt", "Смена не может длиться больше 24 часов")
     if body.capacity > event.limit:

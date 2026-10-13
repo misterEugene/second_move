@@ -42,7 +42,6 @@ def update_profile(body: ProfileIn, db: DB, user: CurrentUser):
 
 @router.get("/statistics")
 def statistics(db: DB, user: Volunteer):
-    """Учитываются только часы, подтверждённые организатором."""
     hours = db.scalars(
         select(VolunteerHours)
         .join(Participation)
@@ -66,7 +65,9 @@ def statistics(db: DB, user: Volunteer):
         })
 
     counts = db.execute(
-        select(Application.status, func.count()).where(Application.volunteer_id == user.id).group_by(Application.status)
+        select(Application.status, func.count(func.distinct(Application.event_id)))
+        .where(Application.volunteer_id == user.id)
+        .group_by(Application.status)
     ).all()
     upcoming = db.scalars(
         select(Application)

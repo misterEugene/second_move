@@ -40,13 +40,13 @@ export interface EventItem {
 export interface EventDetails extends EventItem {
   organizationRating: { average: number | null; count: number };
   canManage: boolean;
-  myApplication: {
+  myApplications: {
     id: number;
     status: ApplicationStatus;
     shiftId: number | null;
     attended: boolean | null;
     hours: number | null;
-  } | null;
+  }[];
   myReview: { rating: number; text: string } | null;
 }
 

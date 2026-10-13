@@ -8,9 +8,7 @@ export function SkillsInput({ value, onChange }: { value: string[]; onChange: (v
   const listId = useId();
 
   useEffect(() => {
-    api<string[]>('/skills').then(setKnown).catch(() => {
-      /* подсказки необязательны */
-    });
+    api<string[]>('/skills').then(setKnown).catch(() => {});
   }, []);
 
   function add() {

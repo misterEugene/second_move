@@ -17,15 +17,10 @@ def as_float(value: Decimal | None) -> float | None:
 
 
 def notify(db: Session, user_id: int, text: str, link: str | None = None) -> None:
-    """Добавляет уведомление в текущую транзакцию — оно сохранится вместе с действием."""
     db.add(Notification(user_id=user_id, text=text, link=link))
 
 
 def get_manageable_event(db: Session, user: User, event_id: int, *, lock: bool = False) -> Event:
-    """
-    Управлять мероприятием может только владелец организации-организатора или администратор.
-    lock=True блокирует строку до конца транзакции, чтобы проверки лимитов не гонялись друг с другом.
-    """
     query = select(Event).where(Event.id == event_id)
     if lock:
         query = query.with_for_update()
@@ -48,8 +43,6 @@ def event_query():
 
 
 class Occupancy:
-    """Одобренные заявки по мероприятиям и занятые места по сменам."""
-
     def __init__(self, db: Session, event_ids: list[int]):
         self.approved: dict[int, int] = {}
         self.taken: dict[int, int] = {}
@@ -57,7 +50,7 @@ class Occupancy:
             return
         approved = Application.status == ApplicationStatus.APPROVED
         rows = db.execute(
-            select(Application.event_id, func.count())
+            select(Application.event_id, func.count(func.distinct(Application.volunteer_id)))
             .where(Application.event_id.in_(event_ids), approved)
             .group_by(Application.event_id)
         )

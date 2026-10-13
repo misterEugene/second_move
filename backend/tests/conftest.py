@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-# Тесты работают с отдельной базой: TEST_DATABASE_URL обязателен, чтобы случайно не стереть рабочую.
 TEST_DB = os.environ.get("TEST_DATABASE_URL")
 if not TEST_DB:
     raise RuntimeError("Задайте TEST_DATABASE_URL для тестов")

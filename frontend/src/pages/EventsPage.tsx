@@ -14,7 +14,6 @@ type Filters = Record<(typeof KEYS)[number], string>;
 
 export function EventsPage() {
   useTitle('Мероприятия');
-  // Фильтры живут в адресной строке — ссылкой на подборку можно поделиться.
   const [params, setParams] = useSearchParams();
   const fromParams = (): Filters => Object.fromEntries(KEYS.map((k) => [k, params.get(k) ?? ''])) as Filters;
   const [filters, setFilters] = useState<Filters>(fromParams);
